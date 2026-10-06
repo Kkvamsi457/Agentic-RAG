@@ -41,7 +41,7 @@ const examples = [
 
   "Using NIST SP 800-145, define the essential characteristics of cloud computing and state if on-demand self-service requires human interaction.",
 
-  "Calculate (1250 * 0.18) + 47.5.",
+  "Calculate (1250 \* 0.18) + 47.5.",
 ];
 
 const toolMeta = {
@@ -108,6 +108,7 @@ function App() {
   const [input, setInput] = useState("");
 
   const [busy, setBusy] = useState(false);
+
   const [workingLabel, setWorkingLabel] = useState(
     "Agent is deciding which tool to use...",
   );
@@ -277,6 +278,7 @@ function App() {
 
     setInput("");
 
+    setWorkingLabel("Agent is deciding which tool to use...");
     setBusy(true);
 
     setMenuId(null);
@@ -301,11 +303,13 @@ function App() {
       if (!routeResponse.ok) throw new Error(plan.detail || "Routing failed");
 
       const selectedTool = plan.tool;
+
       const selectedLabel =
         plan.tool_label ||
         toolMeta[selectedTool]?.label ||
         selectedTool ||
         "Direct Answer";
+
       setWorkingLabel(`Using ${selectedLabel}...`);
 
       const response = await fetch(`${API}/api/chat`, {
@@ -854,7 +858,7 @@ function CopyButton({ text }) {
 }
 
 function RichAnswer({ text }) {
-  const parts = text.split(/(```[\s\S]\*?```)/g);
+  const parts = text.split(/(```[\s\S]\\\*?```)/g);
 
   return (
     <div className="rich-answer">
@@ -902,12 +906,12 @@ function TextBlock({ text }) {
         if (trimmed.startsWith("# "))
           return <h2 key={index}>{trimmed.slice(2)}</h2>;
 
-        if (/^[-\*]\s+/.test(trimmed))
+        if (/^[-\\\*]\s+/.test(trimmed))
           return (
             <div className="answer-list" key={index}>
               <span>•</span>
 
-              {trimmed.replace(/^[-\*]\s+/, "")}
+              {trimmed.replace(/^[-\\\*]\s+/, "")}
             </div>
           );
 
@@ -927,7 +931,9 @@ function TextBlock({ text }) {
 }
 
 function formatInline(text) {
-  const pieces = text.split(/(`[^`]+`|\\\*\\\*[^\*]+\\\*\\\*)/g);
+  const pieces = text.split(
+    /(`[^`]+`|\\\\\\\*\\\\\\\*[^\\\*]+\\\\\\\*\\\\\\\*)/g,
+  );
 
   return pieces.map((piece, index) => {
     if (piece.startsWith("`") && piece.endsWith("`"))
@@ -937,7 +943,7 @@ function formatInline(text) {
         </code>
       );
 
-    if (piece.startsWith("\*\*") && piece.endsWith("\*\*"))
+    if (piece.startsWith("\\\*\\\*") && piece.endsWith("\\\*\\\*"))
       return <strong key={index}>{piece.slice(2, -2)}</strong>;
 
     return <React.Fragment key={index}>{piece}</React.Fragment>;
