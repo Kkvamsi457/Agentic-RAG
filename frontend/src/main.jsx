@@ -25,6 +25,8 @@ import "./styles.css";
 
 const API = "http://127.0.0.1:8000";
 const HISTORY_KEY = "atlas-agentic-rag-history-v3";
+const ACTIVE_CHAT_KEY = "atlas-agentic-rag-active-chat-v1";
+const NEW_CHAT_STATE = "__new_chat__";
 
 const examples = [
   "What are the 6 pillars of the AWS Well-Architected Framework, and which pillar covers incident response?",
@@ -64,12 +66,23 @@ function titleFrom(text) {
 
 function App() {
   const [history, setHistory] = useState(loadHistory);
-  const [activeId, setActiveId] = useState(null);
+  const [activeId, setActiveId] = useState(() => {
+    try {
+      const saved = localStorage.getItem(ACTIVE_CHAT_KEY);
+      if (saved === NEW_CHAT_STATE) return null;
+      if (saved) return saved;
+
+      // First-ever load: preserve the previous default behavior and open
+      // the first saved conversation. Once New Chat is clicked, the explicit
+      // NEW_CHAT_STATE value prevents this fallback on refresh.
+      const existingHistory = loadHistory();
+      return existingHistory[0]?.id || null;
+    } catch {
+      return null;
+    }
+  });
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [workingLabel, setWorkingLabel] = useState(
-    "Agent is deciding which tool to use...",
-  );
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [menuId, setMenuId] = useState(null);
   const [renamingId, setRenamingId] = useState(null);
@@ -86,20 +99,25 @@ function App() {
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
   }, [history]);
 
-  // Select the latest/first chat only once when the app initially loads.
-  // Do NOT automatically select a chat when the user clicks New Chat.
-  // Otherwise activeId becomes null -> first chat is selected again.
-  const initialChatSelectedRef = useRef(false);
-
+  // Persist which conversation is open, including the explicit New Chat state.
+  // This prevents a refresh from automatically reopening the previous chat.
   useEffect(() => {
-    if (initialChatSelectedRef.current) return;
-
-    if (history.length) {
-      setActiveId(history[0].id);
+    try {
+      localStorage.setItem(ACTIVE_CHAT_KEY, activeId || NEW_CHAT_STATE);
+    } catch {
+      // Ignore storage errors (for example, private browsing restrictions).
     }
+  }, [activeId]);
 
-    initialChatSelectedRef.current = true;
-  }, [history]);
+  // If a previously selected chat was removed outside this component, recover
+  // gracefully. Do not select the first chat when the persisted state is New Chat.
+  useEffect(() => {
+    if (!activeId) return;
+    const exists = history.some((chat) => chat.id === activeId);
+    if (!exists) {
+      setActiveId(null);
+    }
+  }, [history, activeId]);
 
   useEffect(() => {
     const el = chatRef.current;
@@ -121,7 +139,6 @@ function App() {
     setActiveId(null);
     setInput("");
     setBusy(false);
-    setWorkingLabel("Agent is deciding which tool to use...");
     setMenuId(null);
     setRenamingId(null);
 
@@ -168,6 +185,9 @@ function App() {
       };
       setHistory((prev) => [newChat, ...prev]);
       setActiveId(chatId);
+      try {
+        localStorage.setItem(ACTIVE_CHAT_KEY, chatId);
+      } catch {}
     } else if (messages.length === 0) {
       setHistory((prev) =>
         prev.map((chat) =>
@@ -189,7 +209,6 @@ function App() {
     );
     setInput("");
     setBusy(true);
-    setWorkingLabel("Agent is deciding which tool to use...");
     setMenuId(null);
 
     const apiHistory = baseMessages.map((m) => ({
@@ -205,12 +224,6 @@ function App() {
       });
       const plan = await routeResponse.json();
       if (!routeResponse.ok) throw new Error(plan.detail || "Routing failed");
-
-      // Routing is complete. Immediately replace the decision message
-      // with the exact tool selected by the agent while that tool runs.
-      setWorkingLabel(
-        `Using ${plan.tool_label || toolMeta[plan.tool]?.label || plan.tool}...`,
-      );
 
       const response = await fetch(`${API}/api/chat`, {
         method: "POST",
@@ -259,7 +272,6 @@ function App() {
       );
     } finally {
       setBusy(false);
-      setWorkingLabel("Agent is deciding which tool to use...");
     }
   };
 
@@ -268,7 +280,11 @@ function App() {
     setMenuId(null);
     if (activeId === id) {
       const remaining = history.filter((chat) => chat.id !== id);
-      setActiveId(remaining[0]?.id || null);
+      const nextId = remaining[0]?.id || null;
+      setActiveId(nextId);
+      try {
+        localStorage.setItem(ACTIVE_CHAT_KEY, nextId || NEW_CHAT_STATE);
+      } catch {}
     }
   };
 
@@ -278,6 +294,9 @@ function App() {
       return;
     setHistory([]);
     setActiveId(null);
+    try {
+      localStorage.setItem(ACTIVE_CHAT_KEY, NEW_CHAT_STATE);
+    } catch {}
     setMenuId(null);
   };
 
@@ -350,6 +369,9 @@ function App() {
                   className={`history-item ${chat.id === activeId ? "active" : ""}`}
                   onClick={() => {
                     setActiveId(chat.id);
+                    try {
+                      localStorage.setItem(ACTIVE_CHAT_KEY, chat.id);
+                    } catch {}
                     setMenuId(null);
                     if (window.innerWidth < 900) setSidebarOpen(false);
                   }}
@@ -448,7 +470,7 @@ function App() {
                   message={message}
                 />
               ))}
-              {busy && <WorkingIndicator label={workingLabel} />}
+              {busy && <WorkingIndicator />}
             </div>
           )}
         </section>
@@ -548,7 +570,7 @@ function ToolMini({ icon, label, color }) {
   );
 }
 
-function WorkingIndicator({ label }) {
+function WorkingIndicator() {
   return (
     <div className="working-row">
       <div className="assistant-avatar working-avatar">
@@ -560,7 +582,7 @@ function WorkingIndicator({ label }) {
           <i />
           <i />
         </div>
-        <span>{label}</span>
+        <span>Agent is deciding which tool to use...</span>
       </div>
     </div>
   );
